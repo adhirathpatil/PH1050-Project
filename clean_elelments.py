@@ -15,10 +15,18 @@ data = df[["EnglishName", "Symbol"] + props].copy()
 for p in props:
     data[p] = pd.to_numeric(data[p], errors="coerce")
 
-# count missing values in each property
+print("missing before fixing group:")
 print(data[props].isna().sum())
 
-# keep only elements that have all 7 properties (no filling in values)
+# lanthanides and actinides are the f-block elements, and have no group in the file
+# so we assign them group 3 instead of dropping them
+is_f_block = df["Block"] == "f"
+data.loc[is_f_block & data["Group"].isna(), "Group"] = 3
+
+print("\nmissing after fixing group:")
+print(data[props].isna().sum())
+
+# keep only elements that have all 7 properties (no other values are filled in)
 clean = data.dropna(subset=props)
 
 print("total elements:", len(data))
