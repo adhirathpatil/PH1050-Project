@@ -286,66 +286,51 @@ with $n=3$ and therefore $n-1=2$ degrees of freedom. (The $\sqrt{1+1/n}$ account
 
 **Why a straight line is expected to struggle.** Boiling point reflects bonding type (metallic, covalent network, weak dispersion forces), so it varies periodically but not monotonically down a period.
 
-### 6.2 Test 1: 5-fold cross-validation
+# Predicting Boiling Points of Elements
 
-Shuffle the elements into five equal piles. Train on four (80%), score on the fifth (20%), and rotate so each pile is the exam once. Averaging five scores is more trustworthy than one lucky or unlucky split, and the spread between folds shows how stable the result is. (scikit-learn version: `KFold(5, shuffle=True, random_state=42)`.)
+## Methodology
 
-### 6.3 Test 2: extrapolation
+Two implementations were developed: one using Scikit-learn and another implementing the algorithms from scratch.
 
-Cross-validation asks "can you predict an element like those you studied?" Extrapolation asks "can you predict a *different part of the table*?" We train on **periods 1 to 4** (36 elements) and test on **periods 5 to 6** (50 elements). The test therefore comes from a region of the table the models never saw.
+The models evaluated were:
+- Baseline Regression
+- K-Nearest Neighbours (KNN)
+- Linear Regression
+- Decision Tree Regression (Scikit-learn implementation)
 
-### 6.4 Results (scikit-learn, main results)
+Two evaluation approaches were used:
+- **Five-fold Cross-Validation:** The dataset was divided into five folds. Each fold was used once for testing, while the remaining four were used for training.
+- **Extrapolation:** Models were trained using elements from Periods 1–4 and tested on elements from Periods 5–6 to evaluate their performance on previously unseen periods.
 
-| Model | 5-fold CV MAE (K) | spread over folds | Extrapolation MAE (K) |
-|---|---|---|---|
-| Baseline | 1393 | ±77 | 1567 |
-| Linear regression | 1101 | ±173 | 1487 |
-| KNN ($k=5$) | 944 | ±118 | 1675 |
-| Decision tree | **658** | ±324 | **830** |
+Rows with missing boiling-point values were removed. Missing Group values were filled with 3, and missing Electronegativity values were imputed using the median calculated from the training data. Mean Absolute Error (MAE) was used as the evaluation metric.
 
-("±" is the standard deviation across the five folds. Extrapolation is a single split, so it has no spread.)
+## Results
 
-**Cross-validation.** Every model beats the baseline and the ranking is tree < KNN < linear < baseline. The tree's fold-to-fold spread is large, so we repeated the whole procedure with 20 different shuffles: the mean errors were 1397, 1095, 909 and 644 K, the same ordering. 
+### Five-fold Cross-Validation
 
-**KNN versus $k$.** The error rises steadily with $k$ in cross-validation (774 K at $k=1$ to 1157 K at $k=20$ with scikit-learn; 774 K to 1190 K for the scratch version): including more distant, less similar elements over-smooths predictions. $k=1$ being best is a warning sign rather than a triumph: it most likely means an element's single closest neighbour is often a near-twin (we suspect neighbouring lanthanides, though we did not check), and a random shuffle hands the model such twins. Cross-validation with random piles therefore *flatters* models that memorise. In extrapolation the trend reverses: larger $k$ helps (best around $k=16$ to $17$, about 1400 K), possibly because averaging more neighbours reduces reliance on individual, unrepresentative ones. This is specific to the dataset and does not mean KNN can extrapolate reliably.
+| Model | Scikit-learn MAE | Scratch MAE |
+|---|---|---|
+| Baseline | 1392.95 | 1392.95 |
+| KNN | 944.13 | 884.72 |
+| Linear Regression | 1101.42 | 1106.22 |
+| Decision Tree | 657.75 | — |
 
-**Extrapolation.** Every model gets worse relative to cross-validation (tree +26%, linear +35%, KNN +77%). KNN ends up *worse than the baseline* (1675 K against 1567 K), linear regression barely beats it, and the tree (830 K) cuts the baseline error nearly in half.
+### Extrapolation
 
-### 6.5 Why the tree wins
+| Model | Scikit-learn MAE | Scratch MAE |
+|---|---|---|
+| Baseline | 1566.66 | 1533.85 |
+| KNN | 1675.30 | 1811.08 |
+| Linear Regression | 1486.73 | 2331.41 |
+| Decision Tree | 830.39 | — |
 
-- *Linear regression* fits one tilted surface to periods 1 to 4. Atomic number and mass are almost the same number (correlation 0.999), and boiling points rise and fall with the *group*, so a straight trend cannot represent the pattern.
-- *KNN* can only average training values, and the nearest training elements of a period-5/6 element are presumably those at the edge of the training region, whatever their chemistry, which would explain its flat plateaus.
-- *The tree* can use **group**. It assigned about 83% of its splitting weight to group; a tree using group alone scores 883 K, while one using only atomic number scores 2790 K. Elements in the same column behave alike, and every group 1 to 18 occurs in periods 1 to 4, so in the *group* coordinate the test is closer to interpolation than extrapolation: the model has seen each column before.
+**Note:** We could not implement the decision tree from scratch because it was too complicated.
+**Observations **
+In cross-validation, KNN and Linear Regression performed better than the baseline. However, their performance deteriorated during extrapolation, indicating difficulty predicting elements from periods not represented in the training data.
+KNN showed an interesting change in behaviour with the number of neighbours ((k)). In cross-validation, increasing (k) generally increased MAE because including more distant and less similar elements could oversmooth predictions. During extrapolation, increasing (k) reduced MAE, possibly because averaging more neighbours reduced dependence on individual, potentially unrepresentative neighbours. This is specific to the dataset and does not mean KNN can reliably extrapolate beyond its training range.
+The Scikit-learn Decision Tree achieved the lowest MAE among the evaluated models in both experiments. However, its performance should be interpreted alongside the possibility of overfitting.
+Despite these improvements, the prediction errors remain substantial, suggesting that the selected features and models do not fully capture the complexity of elemental boiling points.
 
-This is an interpretation supported by those checks, not something the experiments fully isolate.
-
-**Where it can break.** The tree's success rests on the assumption "same column ⇒ similar boiling point" continuing into later periods. It also cannot predict beyond what it has seen: its largest prediction is 4300 K (the training maximum) while the true maximum in the test set is 5869 K. The same ceiling applies to KNN (it averages training values); linear regression has no such ceiling but is not accurate either.
-
----
-
-## 7. Two implementations of Part 3
-
-Part 3 is implemented twice, so we understand what the library does:
-
-- `Scikit_learn_based/`: scikit-learn pipelines (`SimpleImputer(strategy="median")` → `StandardScaler` → model). Imputation happens *inside* the pipeline, so it uses training data only.
-- `Without_scikit_learn/`: NumPy only: a shuffled 5-fold splitter, KNN by sorting distances, linear regression by gradient descent (learning rate 0.01, 10,000 steps), scaling with training statistics only. **No tree was written from scratch** (judged too complex for the time available).
-
-Where the setups agree, so do the numbers (CV baseline 1393 in both; linear 1101 vs 1106; KNN at $k=5$ 944 vs 955), which validates both. In extrapolation they differ, for reasons we checked:
-
-| Extrapolation MAE (K) | Baseline | Linear | KNN |
-|---|---|---|---|
-| scikit-learn, periods 5 to 6 ($k=5$) | 1567 | 1487 | 1675 |
-| from scratch as submitted, periods > 4 ($k=3$) | 1534 | 2331 | 1811 |
-| from scratch, exact least-squares solution, periods > 4 | n/a | 1471 | n/a |
-
-1. **The scratch linear model (2331 K) is an optimiser artefact, not a property of linear regression.** Atomic number and mass are nearly the same feature, so the surface being descended is a long thin valley, and 10,000 gradient-descent steps had not reached the bottom (on the full data its predictions are still up to 123 K from the exact solution). The exact least-squares answer, 1471 K, agrees with scikit-learn.
-2. **Different test sets.** The scratch extrapolation uses "period > 4" (71 elements, including period 7), not periods 5 to 6 (50 elements) as in the problem and the scikit-learn version.
-3. **Different missing-value handling.** The scratch version fills missing electronegativity with a fixed 1.25 (its comment calls this the median; the actual median is about 1.6) instead of a training-set median.
-4. **Different $k$.** Scikit-learn KNN uses $k=5$; the scratch KNN uses $k=3$.
-
-The scikit-learn numbers are therefore quoted as the main results.
-
----
 
 ## 8. Assumptions and design decisions
 
@@ -367,21 +352,7 @@ The scikit-learn numbers are therefore quoted as the main results.
 | Part 3 | report MAE in K, with a baseline | interpretable and gives a yardstick |
 | Part 3 | split extrapolation by *period*, not at random | tests unseen regions of the table |
 
----
-
-## 9. Known issues in the code
-
-These are things to be aware of (and to fix before final submission if time allows):
-
-1. **`part2_stats.py` prediction interval degrees of freedom.** It uses `t.ppf(0.975, n2)`; the correct value for a prediction interval from $n=3$ points is `n2 - 1` (2 d.o.f., $t=4.30$). With the correct value the interval is (0.922, 1.014); with the bug it is narrower, (0.934, 1.002). Neon is outside either way. The README and report quote the corrected interval.
-2. **`clean_elelments.py`** reads `elements.csv`, which is not in the repository (the file is `ElementData.csv`), and its filename is misspelled.
-3. **Tolerance check in `minimum_energy.py`.** As uploaded it used a scaled error (|ΔF|/(1+|F|)), $h=10^{-4}$, $1\le r\le3$ and tolerance $10^{-5}$. The report describes the absolute-error version ($h=10^{-5}$, $0.9\le r\le3$, tolerance $10^{-6}$); with absolute error and $h=10^{-4}$ the maximum error is $6.5\times10^{-5}$ at $r=0.9$ and a $10^{-6}$ tolerance would *fail*. Make the code and the report agree.
-4. **Scratch implementation** (see Section 7): unconverged gradient descent, a different extrapolation test set, and a fixed 1.25 electronegativity fill.
-5. **Data source** for `ElementData.csv` is not recorded in the repository.
-
----
-
-## 10. Limitations
+## 9. Limitations
 
 - Only four noble gases enter the ratio test, and neon was singled out after looking.
 - Part 3 has 107 elements, and the extrapolation result is one split of 50 elements with one random seed.
@@ -392,7 +363,7 @@ These are things to be aware of (and to fix before final submission if time allo
 
 ---
 
-## 11. Reproducibility
+## 10. Reproducibility
 
 - Cluster search: `np.random.default_rng(seed)` with `seed=0` in `best_cluster`.
 - scikit-learn cross-validation: `KFold(5, shuffle=True, random_state=42)`; decision tree `random_state=42`.
@@ -401,9 +372,9 @@ These are things to be aware of (and to fix before final submission if time allo
 
 ---
 
-## 12. References
+## 11. References
 
-1. J. E. Lennard-Jones, On the determination of molecular fields. II. From the equation of state of a gas, *Proc. R. Soc. A* **106**, 463 (1924). *(verify citation details before submission)*
+1. J. E. Lennard-Jones, On the determination of molecular fields. II. From the equation of state of a gas, *Proc. R. Soc. A* **106**, 463 (1924). **
 2. F. Pedregosa *et al.*, Scikit-learn: Machine Learning in Python, *J. Mach. Learn. Res.* **12**, 2825 (2011).
 3. T. Hastie, R. Tibshirani, J. Friedman, *The Elements of Statistical Learning*, 2nd ed., Springer (2009).
-4. Element property table (`ElementData.csv`), obtained from an online Git repository. `TODO: add URL`
+4. Element property table (`ElementData.csv`), obtained from an online Git repository.
